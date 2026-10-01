@@ -86,8 +86,12 @@ Serverless-specific differences from the Render/local entry point
   not re-established every request.
 - The in-process `setInterval` SLA scheduler does nothing useful here
   (functions don't stay alive between requests), so it's not started. Instead,
-  `vercel.json` registers an hourly Vercel Cron Job against
+  `vercel.json` registers a daily Vercel Cron Job against
   `GET /api/cron/sla-escalation`, gated by the `CRON_SECRET` you set above.
+  Daily, not hourly, because Vercel's Hobby plan caps cron jobs at once per
+  day — the Render/local scheduler stays hourly (`src/services/slaEscalation.service.js`).
+  If you're on a Pro/Enterprise plan and want finer-grained escalation on
+  Vercel, tighten the schedule in `vercel.json` (e.g. `"0 * * * *"` for hourly).
 - The demo-data seeder does **not** run automatically on Vercel (there's no
   startup phase to hook it into) — run it once locally against the same
   `MONGODB_URI`, or hit `/api/auth/register` directly, to create your first
