@@ -60,3 +60,35 @@ npm run dev             # nodemon
   `JWT_EXPIRATION_MS`, `CORS_ALLOWED_ORIGINS`, `NODE_ENV=production`.
 
 Then point the frontend's `NEXT_PUBLIC_API_URL` at this service's Render URL.
+
+## Deploying on Vercel
+
+The repo also works as a Vercel serverless deployment via `api/index.js` +
+`vercel.json` (it rewrites every path to that one function, so the Express
+app's own routing still applies).
+
+**You must set these in Project Settings → Environment Variables** (for
+Production and Preview) before it'll boot — a missing `MONGODB_URI` is the
+`MongooseError: The 'uri' parameter to 'openUri()' must be a string, got
+"undefined"` / 500 you'll see in the logs if it's absent:
+
+- `MONGODB_URI`, `MONGODB_DATABASE`
+- `JWT_SECRET`, `JWT_EXPIRATION_MS`
+- `CORS_ALLOWED_ORIGINS` — your frontend's deployed origin(s)
+- `NODE_ENV=production` (disables the demo seeder)
+- `CRON_SECRET` — any random string; enables the SLA-escalation cron hook
+
+Serverless-specific differences from the Render/local entry point
+(`src/index.js`):
+
+- No `app.listen()` — Vercel invokes the exported Express app per-request.
+- The DB connection is cached across warm invocations (`src/config/db.js`),
+  not re-established every request.
+- The in-process `setInterval` SLA scheduler does nothing useful here
+  (functions don't stay alive between requests), so it's not started. Instead,
+  `vercel.json` registers an hourly Vercel Cron Job against
+  `GET /api/cron/sla-escalation`, gated by the `CRON_SECRET` you set above.
+- The demo-data seeder does **not** run automatically on Vercel (there's no
+  startup phase to hook it into) — run it once locally against the same
+  `MONGODB_URI`, or hit `/api/auth/register` directly, to create your first
+  users.
