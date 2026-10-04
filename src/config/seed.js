@@ -63,6 +63,7 @@ async function seedData() {
     currentStep: 0,
     status: 'PENDING',
     history: [],
+    stepStartTimes: { 0: new Date() },
     updatedAt: new Date(),
   });
 
@@ -76,6 +77,7 @@ async function seedData() {
     currentStep: 0,
     status: 'IN_REVIEW',
     history: [],
+    stepStartTimes: { 0: new Date() },
     updatedAt: new Date(),
   });
 

@@ -13,14 +13,16 @@ function toAuthResponse(user, token) {
   };
 }
 
-async function register({ name, email, password, role }) {
+// Self-registration always creates a USER. Elevated roles are granted only by
+// an ADMIN via PATCH /api/admin/users/:id/role — the client never picks its role.
+async function register({ name, email, password }) {
   const exists = await User.exists({ email });
   if (exists) {
     throw new BadRequestException('Email already registered');
   }
 
   const passwordHash = await bcrypt.hash(password, 10);
-  const user = await User.create({ name, email, passwordHash, role });
+  const user = await User.create({ name, email, passwordHash, role: 'USER' });
 
   const token = generateToken(user.email, user.role);
   return toAuthResponse(user.toJSON(), token);

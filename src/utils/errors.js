@@ -14,6 +14,14 @@ class BadRequestException extends Error {
   }
 }
 
+class UnauthorizedException extends Error {
+  constructor(message = 'Authentication required') {
+    super(message);
+    this.status = 401;
+    this.error = 'Unauthorized';
+  }
+}
+
 class AccessDeniedException extends Error {
   constructor(message = 'Access denied') {
     super(message);
@@ -22,4 +30,18 @@ class AccessDeniedException extends Error {
   }
 }
 
-module.exports = { ResourceNotFoundException, BadRequestException, AccessDeniedException };
+class ConflictException extends Error {
+  constructor(message) {
+    super(message);
+    this.status = 409;
+    this.error = 'Conflict';
+  }
+}
+
+module.exports = {
+  ResourceNotFoundException,
+  BadRequestException,
+  UnauthorizedException,
+  AccessDeniedException,
+  ConflictException,
+};

@@ -35,6 +35,9 @@ const requestSchema = new Schema(
   },
   {
     collection: 'requests',
+    // Every save() checks __v, so two concurrent approvals on the same request
+    // can't both succeed — the loser gets a VersionError (mapped to 409).
+    optimisticConcurrency: true,
     timestamps: { createdAt: true, updatedAt: false },
     toJSON: {
       flattenMaps: true,
@@ -46,5 +49,9 @@ const requestSchema = new Schema(
     },
   },
 );
+
+requestSchema.index({ status: 1 });
+requestSchema.index({ createdBy: 1 });
+requestSchema.index({ workflowId: 1, status: 1 });
 
 module.exports = model('Request', requestSchema);

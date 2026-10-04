@@ -1,45 +1,60 @@
 # ProofLoop Backend (Express)
 
-A route-for-route mirror of the Spring Boot backend (`../backend`), so the
-frontend can point at either one by changing `NEXT_PUBLIC_API_URL` — no
-frontend code changes required.
+The primary ProofLoop API (Node/Express + MongoDB), deployable on Vercel's
+free Hobby plan as a serverless function, or on any Node host. It began as a
+mirror of the Spring Boot backend (`../backend`) and keeps the same routes and
+JSON shapes, but is now **ahead** of it — see "Divergence from Spring Boot".
 
-## Why this exists
+## Access rules
 
-Spring Boot on Render needs a JVM with enough memory to boot comfortably,
-which doesn't fit free/small Render instances well. This is a lightweight
-Node/Express service with the same routes, same request/response JSON
-shapes, and the same JWT auth model, so it deploys easily on Render's Node
-runtime (or any Node host) and can be swapped in without touching the
-frontend.
+- **Registration** always creates a `USER`; any `role` in the body is ignored.
+  Admins grant `REVIEWER`/`ADMIN` via `PATCH /api/admin/users/:id/role`.
+- **401** = missing/invalid/expired token (client should re-login);
+  **403** = authenticated but not allowed.
+- **Requests** are visible only to their creator, admins, anyone who already
+  acted on them, and anyone eligible to act on the current step. Others get 404.
+- **No self-approval**: a request's creator can't act on it.
+- **Workflows** can be deleted only by their creator or an admin, and not while
+  they have active (PENDING/IN_REVIEW) requests (409).
 
-## Parity notes
+## Approval engine
 
-- Same routes, same JSON field names (`id`, `createdByName`, `stepApprovals`,
-  etc.) as `GET/POST /api/auth`, `/api/workflows`, `/api/requests`, `/api/admin`.
-- Same JWT shape (`sub` = email, `role` claim, HS256) — tokens are
-  interchangeable between the two backends **if `JWT_SECRET` matches**.
-- Passwords are hashed with bcrypt on both sides, using the same hash
-  format — a user created on one backend can log in on the other **if both
-  point at the same MongoDB**.
-- Same demo-data seeder (admin/reviewer/user + 2 workflows + 2 requests),
-  gated by `NODE_ENV !== 'production'` the way Spring's seeder is gated by
-  `@Profile("!prod")`.
-- Same hourly SLA-escalation job and manual `/api/admin/trigger-sla-check`.
+- `requiredApprovals` (quorum) is enforced per step: each eligible approver
+  votes once (`stepApprovals`), and the step advances when the quorum is met.
+  A single rejection rejects the request.
+- `stepStartTimes` records when each step began; SLA deadlines are measured
+  from it.
+- SLA escalation sets `escalated`/`originalRequiredRole` on **the request** and
+  routes its current step to ADMIN. The shared workflow template is never
+  modified. Escalation clears when the request advances to the next step.
+- Concurrent approvals are guarded by optimistic concurrency
+  (`optimisticConcurrency` on the Request schema): the losing write gets **409**.
+- Every action is appended to a SHA-256 hash chain
+  (`previousHash` → `currentHash`). `GET /api/requests/:id/verify` recomputes
+  the chain and reports the first broken entry. This detects edits to history,
+  but someone with direct database write access could rewrite the whole chain.
+  Anchoring the head hash outside the database is a planned follow-up.
 
-## Known divergence (by design)
+## Endpoints added beyond the Spring Boot API
 
-The Spring Boot `RequestService` never actually populates
-`stepApprovals`/`stepStartTimes` (the quorum/parallel-approval feature) or
-`RequestAction.previousHash`/`currentHash` (the tamper-evident hash chain) —
-those fields exist on the entity and DTOs but nothing in the Java service
-writes to them. This Express backend reproduces the same
-single-approver-per-step behavior for `stepApprovals`, but **does** compute
-real SHA-256 hash chain values for `previousHash`/`currentHash`, since the
-frontend's audit trail already renders those fields and Spring's version is
-simply dead code rather than a depended-upon contract. Let us know if you'd
-rather this be byte-for-byte including the no-op hashing, or if you'd like
-the hash chain wired into the Spring Boot service too.
+- `GET /api/requests/:id/verify`: audit-chain verification
+- `GET /api/admin/users`: list users (password hashes are never serialized)
+- `PATCH /api/admin/users/:id/role`: change a user's role (not your own)
+
+## Divergence from Spring Boot
+
+The Spring Boot service has none of the above: it never populates
+`stepApprovals`/`stepStartTimes` or the hash chain, lets clients choose their
+role at registration, and its SLA job mutates the workflow template. Don't
+point the frontend at it for anything beyond local experiments.
+
+## Tests
+
+```bash
+npm test   # integration tests against an in-memory MongoDB (no Atlas needed)
+```
+
+The first run downloads a MongoDB binary for `mongodb-memory-server`.
 
 ## Running locally
 
@@ -77,6 +92,8 @@ Production and Preview) before it'll boot — a missing `MONGODB_URI` is the
 - `CORS_ALLOWED_ORIGINS` — your frontend's deployed origin(s)
 - `NODE_ENV=production` (disables the demo seeder)
 - `CRON_SECRET` — any random string; enables the SLA-escalation cron hook
+- `JWT_SECRET` must be **at least 32 characters** or the API refuses to issue tokens
+- `AUTH_RATE_LIMIT` (optional, default 20): login/register attempts per IP per 15 min. On Vercel this counter is per function instance, so treat it as a speed bump rather than a hard limit.
 
 Serverless-specific differences from the Render/local entry point
 (`src/index.js`):

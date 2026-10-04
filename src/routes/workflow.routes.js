@@ -47,7 +47,7 @@ router.get('/:id', async (req, res, next) => {
 
 router.delete('/:id', async (req, res, next) => {
   try {
-    await workflowService.deleteWorkflow(req.params.id);
+    await workflowService.deleteWorkflow(req.user, req.params.id);
     res.status(204).send();
   } catch (err) {
     next(err);

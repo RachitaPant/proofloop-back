@@ -1,58 +1,42 @@
 const User = require('../models/User');
 const { verifyToken } = require('../utils/jwt');
+const { UnauthorizedException, AccessDeniedException } = require('../utils/errors');
 
-// Mirrors JwtAuthenticationFilter + UserDetailsServiceImpl: validates the
-// bearer token, loads the user fresh from the DB, attaches it to req.user.
-// Stateless — no session, auth is re-derived from the token on every request.
-async function requireAuth(req, res, next) {
-  const header = req.headers.authorization;
-  if (!header || !header.startsWith('Bearer ')) {
-    return res.status(403).json({
-      timestamp: new Date().toISOString(),
-      status: 403,
-      error: 'Forbidden',
-      message: 'Missing or invalid Authorization header',
-    });
-  }
-
-  const token = header.slice(7);
-  let payload;
+// Validates the bearer token, loads the user fresh from the DB (so role
+// changes take effect immediately), and attaches it to req.user.
+// 401 = not authenticated (missing/invalid/expired token) — the client should
+// re-login. 403 = authenticated but not allowed.
+async function requireAuth(req, _res, next) {
   try {
-    payload = verifyToken(token);
+    const header = req.headers.authorization;
+    if (!header || !header.startsWith('Bearer ')) {
+      throw new UnauthorizedException('Missing or invalid Authorization header');
+    }
+
+    let payload;
+    try {
+      payload = verifyToken(header.slice(7));
+    } catch {
+      throw new UnauthorizedException('Invalid or expired token');
+    }
+
+    const user = await User.findOne({ email: payload.sub });
+    if (!user) throw new UnauthorizedException('User not found');
+
+    req.user = user;
+    next();
   } catch (err) {
-    return res.status(403).json({
-      timestamp: new Date().toISOString(),
-      status: 403,
-      error: 'Forbidden',
-      message: 'Invalid or expired token',
-    });
+    next(err);
   }
-
-  const user = await User.findOne({ email: payload.sub });
-  if (!user) {
-    return res.status(403).json({
-      timestamp: new Date().toISOString(),
-      status: 403,
-      error: 'Forbidden',
-      message: 'User not found',
-    });
-  }
-
-  req.user = user;
-  next();
 }
 
-// Mirrors `.requestMatchers("/api/admin/**").hasRole("ADMIN")`.
-function requireAdmin(req, res, next) {
-  if (req.user.role !== 'ADMIN') {
-    return res.status(403).json({
-      timestamp: new Date().toISOString(),
-      status: 403,
-      error: 'Forbidden',
-      message: 'Access denied',
-    });
-  }
-  next();
+function requireRole(...roles) {
+  return (req, _res, next) => {
+    if (!roles.includes(req.user.role)) return next(new AccessDeniedException());
+    next();
+  };
 }
 
-module.exports = { requireAuth, requireAdmin };
+const requireAdmin = requireRole('ADMIN');
+
+module.exports = { requireAuth, requireRole, requireAdmin };
